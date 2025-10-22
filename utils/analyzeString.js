@@ -1,11 +1,19 @@
 const crypto = require('crypto');
 
-// Compute SHA-256 hash of a string
+/**
+ * sha256 - compute SHA-256 hex digest of a string
+ * @param {string} value
+ * @returns {string}
+ */
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-// Analyze a string and return its computed properties
+/**
+ * analyzeStringValue - compute required properties for a string
+ * @param {string} value
+ * @returns {object}
+ */
 function analyzeStringValue(value) {
   const length = value.length;
   const lowered = value.toLowerCase();
@@ -30,6 +38,10 @@ function analyzeStringValue(value) {
   };
 }
 
+/**
+ * parseBooleanParam - accepts 'true' or 'false' (case-insensitive)
+ * returns boolean or undefined if invalid/absent
+ */
 function parseBooleanParam(val) {
   if (val === undefined) return undefined;
   if (typeof val !== 'string') return undefined;
@@ -39,4 +51,4 @@ function parseBooleanParam(val) {
   return undefined;
 }
 
-module.exports = { sha256, analyzeStringValue, parseBooleanParam };
+module.exports = { sha256, analyzeStringValue, parseBooleanParam }
