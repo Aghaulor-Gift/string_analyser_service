@@ -1,17 +1,26 @@
 const express = require('express');
 const router = express.Router();
-const { createString, getString, getAllStrings, deleteString } = require('../controllers/stringController');
+const {
+  analyzeString,
+  getAllStrings,
+  getStringByValue,
+  deleteString,
+  naturalLanguageFilter
+} = require('../controllers/stringController');
 
-// POST /strings
-router.post('/', createString);
+// 1. Create / Analyze a string
+router.post('/', analyzeString);
 
-// GET /strings (with optional query filters)
+// 2. Get all strings with optional filters
 router.get('/', getAllStrings);
 
-// GET /strings/:string_value
-router.get('/:string_value', getString);
+// 3. Natural language filter
+router.get('/filter-by-natural-language', naturalLanguageFilter);
 
-// DELETE /strings/:string_value
-router.delete('/:string_value', deleteString);
+// 4. Get a specific string
+router.get('/:value', getStringByValue);
+
+// 5. Delete a string
+router.delete('/:value', deleteString);
 
 module.exports = router;

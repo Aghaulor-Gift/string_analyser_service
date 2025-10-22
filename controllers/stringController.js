@@ -1,158 +1,122 @@
-const { sha256, analyzeStringValue, parseBooleanParam } = require('../utils/analyzeString');
+const crypto = require('crypto');
 
-// In-memory store: keyed by sha256 hash
-// record shape:
-// {
-//   id: sha256_hash,
-//   value: "original string",
-//   properties: { length, is_palindrome, unique_characters, word_count, sha256_hash, character_frequency_map },
-//   created_at: "ISO timestamp"
-// }
-const store = {};
+// In-memory database
+const stringDB = new Map();
 
-/* ---- POST /strings ---- */
-function createString(req, res) {
-  if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'value')) {
-    return res.status(400).json({ error: 'Invalid request body or missing "value" field' });
+// Helper function to analyze a string
+function analyze(value) {
+  const sha256_hash = crypto.createHash('sha256').update(value).digest('hex');
+  const length = value.length;
+  const is_palindrome = value.toLowerCase() === value.toLowerCase().split('').reverse().join('');
+  const unique_characters = new Set(value).size;
+  const word_count = value.trim().split(/\s+/).filter(Boolean).length;
+
+  const character_frequency_map = {};
+  for (const char of value) {
+    character_frequency_map[char] = (character_frequency_map[char] || 0) + 1;
+  }
+
+  return {
+    id: sha256_hash,
+    value,
+    properties: {
+      length,
+      is_palindrome,
+      unique_characters,
+      word_count,
+      sha256_hash,
+      character_frequency_map
+    },
+    created_at: new Date().toISOString()
+  };
+}
+
+// POST /strings
+exports.analyzeString = (req, res) => {
+  if (!req.body || typeof req.body.value === 'undefined') {
+    return res.status(400).json({
+      error: 'Invalid request body or missing "value" field'
+    });
   }
 
   const { value } = req.body;
-  if (typeof value !== 'string') {
-    return res.status(422).json({ error: 'Invalid data type for "value" (must be string)' });
+  if (!value) return res.status(400).json({ status: 'error', message: 'Missing value field' });
+  if (typeof value !== 'string') return res.status(422).json({ status: 'error', message: 'Value must be a string' });
+
+  const sha256_hash = crypto.createHash('sha256').update(value).digest('hex');
+  if (stringDB.has(sha256_hash)) {
+    return res.status(409).json({ status: 'error', message: 'String already exists' });
   }
 
-  const properties = analyzeStringValue(value);
-  const id = properties.sha256_hash;
+  const analyzed = analyze(value);
+  stringDB.set(sha256_hash, analyzed);
+  res.status(201).json(analyzed);
+};
 
-  if (store[id]) {
-    return res.status(409).json({ error: 'String already exists in the system' });
+// GET /strings
+exports.getAllStrings = (req, res) => {
+  const { is_palindrome, min_length, max_length, word_count, contains_character } = req.query;
+  let data = Array.from(stringDB.values());
+
+  if (is_palindrome !== undefined) data = data.filter(s => s.properties.is_palindrome === (is_palindrome === 'true'));
+  if (min_length) data = data.filter(s => s.properties.length >= parseInt(min_length));
+  if (max_length) data = data.filter(s => s.properties.length <= parseInt(max_length));
+  if (word_count) data = data.filter(s => s.properties.word_count === parseInt(word_count));
+  if (contains_character) data = data.filter(s => s.value.includes(contains_character));
+
+  res.status(200).json({
+    data,
+    count: data.length,
+    filters_applied: req.query
+  });
+};
+
+// GET /strings/:value
+exports.getStringByValue = (req, res) => {
+  const { value } = req.params;
+  const hash = crypto.createHash('sha256').update(value).digest('hex');
+  const record = stringDB.get(hash);
+  if (!record) return res.status(404).json({ status: 'error', message: 'String not found' });
+  res.status(200).json(record);
+};
+
+// DELETE /strings/:value
+exports.deleteString = (req, res) => {
+  const { value } = req.params;
+  const hash = crypto.createHash('sha256').update(value).digest('hex');
+  if (!stringDB.has(hash)) return res.status(404).json({ status: 'error', message: 'String not found' });
+  stringDB.delete(hash);
+  res.status(204).send();
+};
+
+// GET /strings/filter-by-natural-language/query
+exports.naturalLanguageFilter = (req, res) => {
+  const { query } = req.query;
+  if (!query) return res.status(400).json({ status: 'error', message: 'Missing query parameter' });
+
+  const parsed_filters = {};
+
+  if (query.includes('single word')) parsed_filters.word_count = 1;
+  if (query.includes('palindromic')) parsed_filters.is_palindrome = true;
+  if (query.match(/longer than (\d+)/)) parsed_filters.min_length = parseInt(query.match(/longer than (\d+)/)[1]);
+  if (query.match(/containing the letter (\w)/)) parsed_filters.contains_character = query.match(/containing the letter (\w)/)[1];
+
+  if (Object.keys(parsed_filters).length === 0) {
+    return res.status(400).json({ status: 'error', message: 'Unable to parse natural language query' });
   }
 
-  const created_at = new Date().toISOString();
-  const record = { id, value, properties, created_at };
-  store[id] = record;
+  let data = Array.from(stringDB.values());
+  if (parsed_filters.word_count) data = data.filter(s => s.properties.word_count === parsed_filters.word_count);
+  if (parsed_filters.is_palindrome) data = data.filter(s => s.properties.is_palindrome);
+  if (parsed_filters.min_length) data = data.filter(s => s.properties.length > parsed_filters.min_length);
+  if (parsed_filters.contains_character) data = data.filter(s => s.value.includes(parsed_filters.contains_character));
 
-  return res.status(201).json(record);
-}
-
-/* ---- GET /strings/:string_value ---- */
-function getString(req, res) {
-  const raw = req.params.string_value;
-  const value = decodeURIComponent(raw);
-
-  if (typeof value !== 'string') {
-    return res.status(400).json({ error: 'Invalid string value in path' });
-  }
-
-  const id = sha256(value);
-  const record = store[id];
-
-  if (!record) {
-    return res.status(404).json({ error: 'String does not exist in the system' });
-  }
-
-  return res.status(200).json(record);
-}
-
-/* ---- GET /strings with filtering ---- */
-function getAllStrings(req, res) {
-  try {
-    const q = req.query;
-    const filters = {};
-
-    if (q.is_palindrome !== undefined) {
-      const boolVal = parseBooleanParam(q.is_palindrome);
-      if (boolVal === undefined) {
-        return res.status(400).json({ error: 'Invalid query parameter "is_palindrome" (must be true or false)' });
-      }
-      filters.is_palindrome = boolVal;
+  res.status(200).json({
+    data,
+    count: data.length,
+    interpreted_query: {
+      original: query,
+      parsed_filters
     }
-
-    if (q.min_length !== undefined) {
-      const n = parseInt(q.min_length, 10);
-      if (Number.isNaN(n) || n < 0) {
-        return res.status(400).json({ error: 'Invalid query parameter "min_length" (must be non-negative integer)' });
-      }
-      filters.min_length = n;
-    }
-
-    if (q.max_length !== undefined) {
-      const n = parseInt(q.max_length, 10);
-      if (Number.isNaN(n) || n < 0) {
-        return res.status(400).json({ error: 'Invalid query parameter "max_length" (must be non-negative integer)' });
-      }
-      filters.max_length = n;
-    }
-
-    if (q.word_count !== undefined) {
-      const n = parseInt(q.word_count, 10);
-      if (Number.isNaN(n) || n < 0) {
-        return res.status(400).json({ error: 'Invalid query parameter "word_count" (must be non-negative integer)' });
-      }
-      filters.word_count = n;
-    }
-
-    if (q.contains_character !== undefined) {
-      const cc = q.contains_character;
-      if (typeof cc !== 'string' || cc.length !== 1) {
-        return res.status(400).json({ error: 'Invalid query parameter "contains_character" (must be a single character)' });
-      }
-      filters.contains_character = cc;
-    }
-
-    if (filters.min_length !== undefined && filters.max_length !== undefined) {
-      if (filters.min_length > filters.max_length) {
-        return res.status(400).json({ error: '"min_length" cannot be greater than "max_length"' });
-      }
-    }
-
-    let results = Object.values(store);
-
-    if (filters.is_palindrome !== undefined) {
-      results = results.filter(r => r.properties.is_palindrome === filters.is_palindrome);
-    }
-    if (filters.min_length !== undefined) {
-      results = results.filter(r => r.properties.length >= filters.min_length);
-    }
-    if (filters.max_length !== undefined) {
-      results = results.filter(r => r.properties.length <= filters.max_length);
-    }
-    if (filters.word_count !== undefined) {
-      results = results.filter(r => r.properties.word_count === filters.word_count);
-    }
-    if (filters.contains_character !== undefined) {
-      results = results.filter(r => Object.prototype.hasOwnProperty.call(r.properties.character_frequency_map, filters.contains_character));
-    }
-
-    const filtersApplied = {};
-    if (filters.is_palindrome !== undefined) filtersApplied.is_palindrome = filters.is_palindrome;
-    if (filters.min_length !== undefined) filtersApplied.min_length = filters.min_length;
-    if (filters.max_length !== undefined) filtersApplied.max_length = filters.max_length;
-    if (filters.word_count !== undefined) filtersApplied.word_count = filters.word_count;
-    if (filters.contains_character !== undefined) filtersApplied.contains_character = filters.contains_character;
-
-    return res.status(200).json({ data: results, count: results.length, filters_applied: filtersApplied });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error' });
-  }
-}
-
-/* ---- DELETE /strings/:string_value ---- */
-function deleteString(req, res) {
-  const raw = req.params.string_value;
-  const value = decodeURIComponent(raw);
-
-  if (typeof value !== 'string') {
-    return res.status(400).json({ error: 'Invalid string value in path' });
-  }
-
-  const id = sha256(value);
-  if (!store[id]) {
-    return res.status(404).json({ error: 'String does not exist in the system' });
-  }
-
-  delete store[id];
-  return res.status(204).send();
-}
-
-module.exports = { createString, getString, getAllStrings, deleteString, _store: store };
+  });
+};
