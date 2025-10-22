@@ -10,15 +10,14 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 
-// Base route
+// Root: brief message (not required by spec but useful)
 app.get('/', (req, res) => {
-  res.redirect('/strings');
+  res.json({ message:' Use POST /strings to analyze and store.' });
 });
 
-// Use routes
+// Mount routes exactly at /strings per spec
 app.use('/strings', stringRoutes);
 
-// Start server
 app.listen(PORT, () => {
   console.log(`String Analyzer Service running on http://localhost:${PORT}`);
 });
