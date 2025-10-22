@@ -53,9 +53,15 @@ exports.analyzeString = (req, res) => {
   res.status(201).json(analyzed);
 };
 
-// GET /strings
+// GET /strings with filtering
 exports.getAllStrings = (req, res) => {
   const { is_palindrome, min_length, max_length, word_count, contains_character } = req.query;
+  if (is_palindrome === undefined && !min_length && !max_length && !word_count && !contains_character) {
+    return res.status(400).json({
+      message: 'Invalid query parameter values or types'
+    });
+  }
+
   let data = Array.from(stringDB.values());
 
   if (is_palindrome !== undefined) data = data.filter(s => s.properties.is_palindrome === (is_palindrome === 'true'));
@@ -97,8 +103,10 @@ exports.naturalLanguageFilter = (req, res) => {
   const parsed_filters = {};
 
   if (query.includes('single word')) parsed_filters.word_count = 1;
+  if (query.includes('two word')) parsed_filters.word_count = 2;
   if (query.includes('palindromic')) parsed_filters.is_palindrome = true;
   if (query.match(/longer than (\d+)/)) parsed_filters.min_length = parseInt(query.match(/longer than (\d+)/)[1]);
+  if (query.match(/shorter than (\d+)/)) parsed_filters.max_length = parseInt(query.match(/shorter than (\d+)/)[1]);
   if (query.match(/containing the letter (\w)/)) parsed_filters.contains_character = query.match(/containing the letter (\w)/)[1];
 
   if (Object.keys(parsed_filters).length === 0) {
@@ -110,6 +118,20 @@ exports.naturalLanguageFilter = (req, res) => {
   if (parsed_filters.is_palindrome) data = data.filter(s => s.properties.is_palindrome);
   if (parsed_filters.min_length) data = data.filter(s => s.properties.length > parsed_filters.min_length);
   if (parsed_filters.contains_character) data = data.filter(s => s.value.includes(parsed_filters.contains_character));
+
+// Check for conflicting filters (e.g., min_length > max_length)
+  if (
+      parsedFilters.min_length !== undefined &&
+      parsedFilters.max_length !== undefined &&
+      parsedFilters.min_length > parsedFilters.max_length
+  ) {
+      // 422 Unprocessable Entity
+      return res.status(422).json({
+        message:
+          'Unprocessable Entity: Query resulted in conflicting length filters.',
+        interpreted_query: { original: query, parsed_filters: parsedFilters },
+      })};
+
 
   res.status(200).json({
     data,
