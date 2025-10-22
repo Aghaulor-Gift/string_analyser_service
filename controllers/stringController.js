@@ -121,15 +121,15 @@ exports.naturalLanguageFilter = (req, res) => {
 
 // Check for conflicting filters (e.g., min_length > max_length)
   if (
-      parsedFilters.min_length !== undefined &&
-      parsedFilters.max_length !== undefined &&
-      parsedFilters.min_length > parsedFilters.max_length
+      parsed_filters.min_length !== undefined &&
+      parsed_filters.max_length !== undefined &&
+      parsed_filters.min_length > parsed_filters.max_length
   ) {
       // 422 Unprocessable Entity
       return res.status(422).json({
         message:
           'Unprocessable Entity: Query resulted in conflicting length filters.',
-        interpreted_query: { original: query, parsed_filters: parsedFilters },
+        interpreted_query: { original: query, parsed_filters: parsed_filters },
       })};
 
 
